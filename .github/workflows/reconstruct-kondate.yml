@@ -1,11 +1,9 @@
-# Triggered after ZIP import fix
 name: Import kondate source
 
 on:
   push:
     branches: [main]
     paths:
-      - 'KyouNoKondate-source-v1.3.0.zip'
       - '.github/workflows/reconstruct-kondate.yml'
 
 permissions:
@@ -19,10 +17,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify ZIP
+      - name: Reconstruct and verify ZIP
         shell: bash
         run: |
           set -euo pipefail
+          cat .zip-parts/part1.b64 .zip-parts/part2.b64 .zip-parts/part3.b64 .zip-parts/part4.b64 | base64 -d > KyouNoKondate-source-v1.3.0.zip
           echo "8a9bc1a5b189751914f80640ae63bb03ea59459c7c4189cbdfb7dc55dc695ed5  KyouNoKondate-source-v1.3.0.zip" | sha256sum -c -
           unzip -t KyouNoKondate-source-v1.3.0.zip
 
