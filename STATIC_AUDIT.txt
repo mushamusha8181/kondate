@@ -1,0 +1,9 @@
+STATIC AUDIT v1.3.0
+TikTok/Instagram実装: OK
+YouTube Data API: OK
+平文HTTP: OK
+Android Log: OK
+APIキー直書き: OK
+常駐/定期監視API: OK
+XML parse: OK
+Runtime API key: DeepSeek only
