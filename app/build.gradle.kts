@@ -27,3 +27,5 @@ java {
         languageVersion = JavaLanguageVersion.of(17)
     }
 }
+
+apply(from = "mushin-glass.gradle")
