@@ -18,8 +18,8 @@ jobs:
         with:
           gradle-version: '9.6.0'
           cache-disabled: true
-      - name: Clean build debug APK
-        run: gradle clean :app:assembleDebug --no-build-cache --rerun-tasks --stacktrace
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-build-cache --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: kondate-debug-apk
