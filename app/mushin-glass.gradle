@@ -1,0 +1,56 @@
+def mgGenerated = file("$buildDir/generated/mushinGlass")
+
+android {
+    sourceSets.main.java.srcDir(new File(mgGenerated, 'src'))
+    sourceSets.main.res.srcDir(new File(mgGenerated, 'res'))
+    sourceSets.main.assets.srcDir(new File(mgGenerated, 'assets'))
+}
+
+def prepareMushinGlass = tasks.register('prepareMushinGlass') {
+    doLast {
+        def src = new File(mgGenerated, 'src/jp/mushamusha/mushinglass/MushinGlass.java')
+        def commonCache = new File(gradle.gradleUserHomeDir, 'caches/mushin-glass/runtime/MushinGlass.java')
+        if (!commonCache.exists() || commonCache.length() < 15000L) {
+            commonCache.parentFile.mkdirs()
+            def c = new URL('https://raw.githubusercontent.com/mushamusha8181/light/main/app/src/main/java/jp/mushamusha/mushinglass/MushinGlass.java').openConnection()
+            c.connectTimeout = 15000; c.readTimeout = 45000; c.setRequestProperty('User-Agent','MUSHIN-Glass-Android-Build')
+            c.inputStream.withCloseable { i -> commonCache.withOutputStream { o -> o << i } }
+        }
+        src.parentFile.mkdirs(); src.bytes = commonCache.bytes
+
+        def resFont = new File(mgGenerated, 'res/font/mushin.otf')
+        def assetFont = new File(mgGenerated, 'assets/mushin.otf')
+        if (!resFont.exists() || resFont.length() < 1000000L || !assetFont.exists()) {
+            def cacheDir = new File(gradle.gradleUserHomeDir, 'caches/mushin/1.04'); cacheDir.mkdirs()
+            def zipFile = new File(cacheDir, 'MODI_mushin_2021_1104.zip')
+            if (!zipFile.exists() || zipFile.length() < 2000000L) {
+                def c = new URL('https://modi.jpn.org/download/MODI_mushin_2021_1104.zip').openConnection()
+                c.connectTimeout = 15000; c.readTimeout = 45000; c.setRequestProperty('User-Agent','MUSHIN-Glass-Android-Build')
+                c.inputStream.withCloseable { i -> zipFile.withOutputStream { o -> o << i } }
+            }
+            byte[] bytes = null
+            new java.util.zip.ZipInputStream(new FileInputStream(zipFile)).withCloseable { z ->
+                java.util.zip.ZipEntry e
+                while ((e = z.nextEntry) != null) if (!e.directory && (e.name == 'mushin.otf' || e.name.endsWith('/mushin.otf'))) { bytes = z.bytes; break }
+            }
+            if (bytes == null || bytes.length < 1000000) throw new GradleException('MUSHIN font could not be extracted.')
+            resFont.parentFile.mkdirs(); assetFont.parentFile.mkdirs(); resFont.bytes = bytes; assetFont.bytes = bytes
+        }
+
+        def colors = [default:'#E62117',green:'#4E8F6B',green_light:'#7FA98C',white:'#FFFFFF',moss_pink:'#8E5A6B',moss_red:'#8E4F4A',moss_black:'#3A3A3A',mono_light:'#000000',mono_dark:'#828385',graphite:'#546E7A',slate:'#455A64',teal_gray:'#436E6A',olive_gray:'#666B4D',mauve_gray:'#6D5A70',sand_gray:'#756A5C',blue_sky:'#3568B8',blue_night:'#4F78C8',red_rose:'#C05278',red_night:'#A23B48',brown_latte:'#806353',brown_cocoa:'#795548']
+        def path = 'M18,78 L18,31 C18,23 23,18 31,18 C36,18 40,21 43,26 L54,43 L65,26 C68,21 72,18 77,18 C85,18 90,23 90,31 L90,78 L77,78 L77,40 L59,68 C57,72 51,72 49,68 L31,40 L31,78 Z'
+        def drawable = new File(mgGenerated,'res/drawable'), v26 = new File(mgGenerated,'res/mipmap-anydpi-v26'), mipmap = new File(mgGenerated,'res/mipmap-anydpi'), values = new File(mgGenerated,'res/values')
+        [drawable,v26,mipmap,values].each { it.mkdirs() }
+        new File(values,'mushin_glass_colors.xml').text = '<?xml version="1.0" encoding="utf-8"?><resources><color name="mushin_icon_background">#FFFFFF</color></resources>'
+        new File(mipmap,'mushin_icon_fallback.xml').text = """<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#FFFFFF" android:pathData="M0,0H108V108H0Z"/><path android:fillColor="#436E6A" android:pathData="${path}"/></vector>"""
+        def legacy = new StringBuilder('<?xml version="1.0" encoding="utf-8"?><resources>')
+        colors.each { id,color ->
+            legacy.append("<item type=\"mipmap\" name=\"mushin_icon_${id}\">@mipmap/mushin_icon_fallback</item>")
+            new File(drawable,"mushin_mark_${id}.xml").text = """<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="${color}" android:pathData="${path}"/></vector>"""
+            new File(v26,"mushin_icon_${id}.xml").text = """<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/mushin_icon_background"/><foreground android:drawable="@drawable/mushin_mark_${id}"/></adaptive-icon>"""
+        }
+        legacy.append('</resources>'); new File(values,'mushin_icon_legacy_aliases.xml').text = legacy.toString()
+    }
+}
+
+tasks.named('preBuild').configure { dependsOn prepareMushinGlass }
