@@ -278,163 +278,83 @@ class MainActivity : Activity() {
         cancelPendingSearch()
         val serial = ++requestSerial
         val snapshot = filters
+        status.text = "候補を探しています…"
         nextButton.isEnabled = false
         favoriteButton.isEnabled = false
-        favoriteButton.text = "♡"
-        current = null
-        status.text = "検索中…"
-        clearContent()
-
         activeRequest = searchExecutor.submit {
             val result = runCatching { repository.next(snapshot) }
-            if (Thread.currentThread().isInterrupted) return@submit
             main.post {
                 if (serial != requestSerial || isFinishing || isDestroyed) return@post
-                activeRequest = null
                 nextButton.isEnabled = true
                 result.onSuccess { card ->
                     current = card
-                    if (card == null) {
-                        favoriteButton.isEnabled = false
-                        status.text = "この検索範囲では献立が見つかりませんでした。次へでもう少し探すか、条件を少し広げてください。"
-                        render(null)
-                    } else {
-                        status.text = "条件を厳格に確認した献立です"
-                        render(card)
-                    }
+                    status.text = if (card == null) "候補がありません。条件を変えてください。" else ""
+                    render(card)
                 }.onFailure { error ->
-                    favoriteButton.isEnabled = false
-                    when (error) {
-                        is MissingKey -> {
-                            status.text = "${error.label}が未設定です"
-                            openSettings()
-                        }
-                        is InterruptedException -> Unit
-                        is HttpStatusException -> {
-                            status.text = "DeepSeek通信に失敗しました（HTTP ${error.code}）。APIキー・残高・レート制限・通信状態を確認してください。"
-                        }
-                        is InvalidAiResponseException -> {
-                            status.text = "DeepSeekの応答を確認できませんでした。同じ条件でもう一度お試しください。"
-                        }
-                        else -> {
-                            status.text = "読み込みに失敗しました。通信状態またはAPI設定を確認してください。"
-                            Toast.makeText(this, error.message ?: "エラー", Toast.LENGTH_LONG).show()
-                        }
-                    }
+                    status.text = error.message ?: "献立の取得に失敗しました"
+                    render(null)
                 }
             }
         }
     }
 
     private fun render(card: RecipeCard?) {
-        clearContent()
+        content.removeAllViews()
+        favoriteButton.isEnabled = card != null
         if (card == null) {
-            favoriteButton.isEnabled = false
+            content.addView(TextView(this).apply {
+                text = "候補がありません"
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(48), 0, 0)
+            })
             return
         }
-
-        favoriteButton.isEnabled = true
         favoriteButton.text = if (card.favorite) "♥" else "♡"
         favoriteButton.contentDescription = if (card.favorite) "お気に入りから削除" else "お気に入りに追加"
-
-        if (filters.displayMode == "動画") {
-            val media = runCatching { buildPlayer(card.videoId) }
-                .getOrElse {
-                    status.text = "動画プレーヤーを初期化できないため画像表示に切り替えました"
-                    buildThumbnail(card.thumbnailUrl)
-                }
-            content.addView(media)
-        } else {
-            content.addView(buildThumbnail(card.thumbnailUrl))
-        }
-
-        content.addView(TextView(this).apply {
-            text = card.title
-            textSize = 19f
-            setPadding(0, dp(8), 0, dp(2))
-        })
-
-        val recipeTime = if (card.recipeMinutes > 0) "調理 約${card.recipeMinutes}分" else "調理時間 記録なし"
-        content.addView(TextView(this).apply {
-            text = "$recipeTime ・ YouTube"
-            textSize = 12f
-        })
-
-        addSection("材料", card.ingredients, bullets = true)
-        addSection("作り方", card.steps.mapIndexed { index, step -> "${index + 1}. $step" }, bullets = false)
-        content.addView(TextView(this).apply {
-            text = "判定根拠: ${card.evidence}"
-            textSize = 11f
-            setPadding(0, dp(8), 0, dp(6))
-        })
-        content.addView(Button(this).apply {
-            text = "YouTubeで開く"
-            minHeight = dp(48)
-            setOnClickListener {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=${card.videoId}"))
-                try {
-                    startActivity(intent)
-                } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(this@MainActivity, "YouTubeを開けるアプリが見つかりません", Toast.LENGTH_SHORT).show()
-                }
-            }
-        })
-    }
-
-    private fun buildPlayer(id: String): View {
-        val webView = WebView(this)
-        try {
-            webView.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, playerHeight())
-            webView.settings.javaScriptEnabled = true
-            webView.settings.domStorageEnabled = true
-            webView.settings.mediaPlaybackRequiresUserGesture = true
-            webView.settings.allowFileAccess = false
-            webView.settings.allowContentAccess = false
-            webView.settings.javaScriptCanOpenWindowsAutomatically = false
-            webView.settings.setGeolocationEnabled(false)
-            webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            webView.settings.safeBrowsingEnabled = true
-            webView.webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                    if (request == null || !request.isForMainFrame || !request.hasGesture()) return false
-                    val uri = request.url
-                    val host = uri.host?.lowercase().orEmpty()
-                    val isYouTube = host == "youtube.com" || host.endsWith(".youtube.com") ||
-                        host == "youtu.be" || host.endsWith(".youtu.be")
-                    if (uri.scheme == "https" && isYouTube) {
-                        runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-                    }
-                    return true
-                }
-            }
-            val embedUrl = "https://www.youtube.com/embed/$id?playsinline=1&rel=0"
-            webView.loadUrl(embedUrl, mapOf("Referer" to "https://$packageName"))
-            playerWebView = webView
-            return webView
-        } catch (error: RuntimeException) {
-            webView.destroy()
-            throw error
+        addSection(card.title, listOf(card.description), false)
+        addSection("材料", card.ingredients, true)
+        addSection("作り方", card.steps, true)
+        addSection("ポイント", card.tips, true)
+        if (filters.displayMode == "動画" && card.videoUrl.isNotBlank()) {
+            content.addView(videoView(card.videoUrl))
+        } else if (card.imageUrl.isNotBlank()) {
+            content.addView(imageView(card.imageUrl))
         }
     }
 
-    private fun buildThumbnail(url: String): View {
-        val image = ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, mediaHeight())
+    private fun videoView(url: String): View {
+        playerWebView?.destroy()
+        val web = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = true
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+            }
+            loadUrl(url)
+        }
+        playerWebView = web
+        return web
+    }
+
+    private fun imageView(url: String): View {
+        val view = ImageView(this).apply {
+            adjustViewBounds = true
             scaleType = ImageView.ScaleType.CENTER_CROP
-            contentDescription = "料理動画のサムネイル"
         }
-        if (url.isBlank()) return image
-
         imageRequest?.cancel(true)
-        imageRequest = imageExecutor.submit imageLoad@{
-            val bytes = runCatching { Http.getBytes(url, "ytimg.com") }.getOrNull() ?: return@imageLoad
-            if (Thread.currentThread().isInterrupted) return@imageLoad
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@imageLoad
+        imageRequest = imageExecutor.submit {
+            val bitmap = runCatching {
+                java.net.URL(url).openConnection().apply { connectTimeout = 5000; readTimeout = 7000 }
+                    .getInputStream().use(BitmapFactory::decodeStream)
+            }.getOrNull()
             main.post {
-                if (!isFinishing && !isDestroyed && image.isAttachedToWindow) image.setImageBitmap(bitmap)
+                if (!isFinishing && !isDestroyed && bitmap != null) view.setImageBitmap(bitmap)
             }
         }
-        return image
+        return view
     }
 
     private fun addSection(title: String, lines: List<String>, bullets: Boolean) {
@@ -459,11 +379,11 @@ class MainActivity : Activity() {
         }
         val include = EditText(this).apply {
             hint = "使いたい食材（例: 卵, 豆腐）"
-            setText(filters.includeIngredients)
+            setText(this@MainActivity.filters.includeIngredients)
         }
         val exclude = EditText(this).apply {
             hint = "使わない食材（例: にんにく）"
-            setText(filters.excludeIngredients)
+            setText(this@MainActivity.filters.excludeIngredients)
         }
         box.addView(include)
         box.addView(exclude)
@@ -482,115 +402,71 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun showHistory() = showSavedCards(
-        title = "閲覧履歴",
-        cards = store.history().take(30),
-        emptyMessage = "閲覧履歴はまだありません",
-        selectedMessage = "閲覧履歴から表示しています"
-    )
+    private fun showFavorites() {
+        val favorites = store.favorites()
+        showCardListDialog("お気に入り", favorites)
+    }
 
-    private fun showFavorites() = showSavedCards(
-        title = "お気に入り",
-        cards = store.favorites(),
-        emptyMessage = "お気に入りはまだありません",
-        selectedMessage = "お気に入りから表示しています"
-    )
+    private fun showHistory() {
+        val history = store.history()
+        showCardListDialog("閲覧履歴", history)
+    }
 
-    private fun showSavedCards(title: String, cards: List<RecipeCard>, emptyMessage: String, selectedMessage: String) {
+    private fun showCardListDialog(title: String, cards: List<RecipeCard>) {
         if (cards.isEmpty()) {
-            Toast.makeText(this, emptyMessage, Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "$title はまだありません", Toast.LENGTH_SHORT).show()
             return
         }
+        val labels = cards.map { it.title }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(title)
-            .setItems(cards.map { it.title }.toTypedArray()) { _, which ->
-                cancelPendingSearch()
+            .setItems(labels) { _, which ->
                 current = cards[which]
-                status.text = selectedMessage
                 render(current)
             }
-            .setPositiveButton("閉じる", null)
+            .setNegativeButton("閉じる", null)
             .show()
     }
 
     private fun showIntro() {
         AlertDialog.Builder(this)
-            .setTitle("初回確認")
-            .setMessage(
-                "このアプリが必要とするAndroid権限はインターネット通信のみです。これは通常権限のためOSの許可ダイアログは表示されません。" +
-                    "カメラ・位置情報・連絡先・ストレージ権限は要求しません。\n\n" +
-                    "YouTube候補の検索と条件判定にはDeepSeek APIキーだけを使用します。YouTube APIキーやGoogle Cloud設定は不要です。\n\n" +
-                    "検索条件とDeepSeek Searchで取得したYouTube検索情報は、厳格判定のためDeepSeekへ送信されます。"
-            )
-            .setPositiveButton("設定する") { _, _ ->
+            .setTitle("今日の献立")
+            .setMessage("条件を選ぶだけで、短時間で作れる献立候補を探します。設定からDeepSeek APIキーを登録すると利用できます。")
+            .setPositiveButton("はじめる") { _, _ ->
                 getSharedPreferences("app_state", MODE_PRIVATE).edit().putBoolean("intro_seen", true).apply()
-                openSettings()
-            }
-            .setNegativeButton("あとで") { _, _ ->
-                getSharedPreferences("app_state", MODE_PRIVATE).edit().putBoolean("intro_seen", true).apply()
-                status.text = "利用するには設定からDeepSeek APIキーを登録してください。"
+                if (secure.has("deepseek_api_key")) loadNext() else openSettings()
             }
             .setCancelable(false)
             .show()
     }
 
     private fun openSettings() {
-        cancelPendingSearch()
+        if (settingsOpened) return
         settingsOpened = true
-        startActivity(Intent(this, SettingsActivity::class.java))
-    }
-
-    private fun cancelPendingSearch() {
-        requestSerial++
-        activeRequest?.cancel(true)
-        Http.cancelJsonRequests()
-        activeRequest = null
-        if (::nextButton.isInitialized) nextButton.isEnabled = true
-    }
-
-    private fun clearContent() {
-        imageRequest?.cancel(true)
-        Http.cancelBinaryRequests()
-        imageRequest = null
-        playerWebView?.let { webView ->
-            webView.stopLoading()
-            webView.loadUrl("about:blank")
-            webView.removeAllViews()
-            webView.destroy()
+        val key = EditText(this).apply {
+            hint = "DeepSeek APIキー"
+            setText(secure.get("deepseek_api_key").orEmpty())
         }
-        playerWebView = null
-        if (::content.isInitialized) content.removeAllViews()
-    }
-
-    private fun mediaWidth(): Int {
-        val measured = if (::content.isInitialized) content.width else 0
-        val fallback = resources.displayMetrics.widthPixels - dp(20)
-        return (if (measured > dp(160)) measured else fallback).coerceAtLeast(dp(240))
-    }
-
-    private fun mediaHeight(): Int =
-        (mediaWidth() * 9f / 16f).toInt().coerceIn(dp(135), dp(220))
-
-    private fun playerHeight(): Int =
-        (mediaWidth() * 9f / 16f).toInt().coerceIn(dp(200), dp(240))
-
-    private fun applySystemBarInsets(view: View, left: Int, top: Int, right: Int, bottom: Int) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        view.setOnApplyWindowInsetsListener { target, insets ->
-            val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-            target.setPadding(left + bars.left, top + bars.top, right + bars.right, bottom + bars.bottom)
-            insets
-        }
+        AlertDialog.Builder(this)
+            .setTitle("設定")
+            .setView(key)
+            .setPositiveButton("保存") { _, _ ->
+                val value = key.text.toString().trim()
+                if (value.isBlank()) secure.remove("deepseek_api_key") else secure.put("deepseek_api_key", value)
+                settingsOpened = false
+                if (value.isNotBlank()) loadNext()
+            }
+            .setNegativeButton("キャンセル") { _, _ -> settingsOpened = false }
+            .setOnCancelListener { settingsOpened = false }
+            .show()
     }
 
     private fun removeLegacyYouTubeKeyOnce() {
-        val prefs = getSharedPreferences("app_state", MODE_PRIVATE)
-        if (prefs.getBoolean("deepseek_only_migrated", false)) return
+        val prefs = getSharedPreferences("migration", MODE_PRIVATE)
+        if (prefs.getBoolean("youtube_key_removed", false)) return
         secure.remove("youtube_api_key")
-        prefs.edit().putBoolean("deepseek_only_migrated", true).apply()
+        prefs.edit().putBoolean("youtube_key_removed", true).apply()
     }
-
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
@@ -600,33 +476,43 @@ class MainActivity : Activity() {
         outState.putString("filter_display", filters.displayMode)
         outState.putString("filter_include", filters.includeIngredients)
         outState.putString("filter_exclude", filters.excludeIngredients)
-        current?.videoId?.let { outState.putString("current_video_id", it) }
+        outState.putString("current_video_id", current?.videoId)
     }
 
-    override fun onResume() {
-        super.onResume()
-        playerWebView?.onResume()
-        if (settingsOpened) {
-            settingsOpened = false
-            repository.clearQueues()
-            if (secure.has("deepseek_api_key")) {
-                loadNext()
-            } else {
-                status.text = "DeepSeek APIキーを設定してください。"
-            }
-        }
-    }
-
-    override fun onPause() {
-        playerWebView?.onPause()
-        super.onPause()
+    override fun onStop() {
+        if (isFinishing) cancelPendingSearch()
+        super.onStop()
     }
 
     override fun onDestroy() {
         cancelPendingSearch()
-        clearContent()
+        imageRequest?.cancel(true)
+        playerWebView?.stopLoading()
+        playerWebView?.destroy()
+        playerWebView = null
         searchExecutor.shutdownNow()
         imageExecutor.shutdownNow()
         super.onDestroy()
     }
+
+    private fun cancelPendingSearch() {
+        requestSerial++
+        activeRequest?.cancel(true)
+        activeRequest = null
+    }
+
+    private fun applySystemBarInsets(view: View, l: Int, t: Int, r: Int, b: Int) {
+        view.setOnApplyWindowInsetsListener { v, insets ->
+            val bars = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(WindowInsets.Type.systemBars())
+            } else {
+                @Suppress("DEPRECATION")
+                android.graphics.Insets.of(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+            }
+            v.setPadding(l + bars.left, t + bars.top, r + bars.right, b + bars.bottom)
+            insets
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
