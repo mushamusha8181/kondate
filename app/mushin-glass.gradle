@@ -1,6 +1,70 @@
 def mgGenerated = file("$buildDir/generated/mushinGlass")
+def mgOriginalManifest = file('src/main/AndroidManifest.xml')
+def mgGeneratedManifest = new File(mgGenerated, 'AndroidManifest.xml')
+
+def mgAliases = [
+    default:'IconDefault', green:'IconGreen', green_light:'IconGreenLight', white:'IconWhite',
+    moss_pink:'IconMossPink', moss_red:'IconMossRed', moss_black:'IconMossBlack',
+    mono_light:'IconMonoLight', mono_dark:'IconMonoDark', graphite:'IconGraphite', slate:'IconSlate',
+    teal_gray:'IconTealGray', olive_gray:'IconOliveGray', mauve_gray:'IconMauveGray', sand_gray:'IconSandGray',
+    blue_sky:'IconBlueSky', blue_night:'IconBlueNight', red_rose:'IconRedRose', red_night:'IconRedNight',
+    brown_latte:'IconBrownLatte', brown_cocoa:'IconBrownCocoa'
+]
+
+def mgManifestText = mgOriginalManifest.getText('UTF-8')
+def mgComponentPattern = java.util.regex.Pattern.compile('(?s)<(activity|activity-alias)\\b([^>]*)>(.*?)</\\1>')
+def mgComponentMatcher = mgComponentPattern.matcher(mgManifestText)
+def mgOut = new StringBuffer()
+def mgLauncherTarget = null
+while (mgComponentMatcher.find()) {
+    def tag = mgComponentMatcher.group(1)
+    def attrs = mgComponentMatcher.group(2)
+    def body = mgComponentMatcher.group(3)
+    if (body.contains('android.intent.action.MAIN') && body.contains('android.intent.category.LAUNCHER')) {
+        def nameMatcher = java.util.regex.Pattern.compile('android:name\\s*=\\s*"([^"]+)"').matcher(attrs)
+        def targetMatcher = java.util.regex.Pattern.compile('android:targetActivity\\s*=\\s*"([^"]+)"').matcher(attrs)
+        if (mgLauncherTarget == null) {
+            if (tag == 'activity-alias' && targetMatcher.find()) mgLauncherTarget = targetMatcher.group(1)
+            else if (nameMatcher.find()) mgLauncherTarget = nameMatcher.group(1)
+        }
+        def filterMatcher = java.util.regex.Pattern.compile('(?s)<intent-filter\\b[^>]*>.*?</intent-filter>').matcher(body)
+        def bodyOut = new StringBuffer()
+        while (filterMatcher.find()) {
+            def block = filterMatcher.group()
+            def replacement = (block.contains('android.intent.action.MAIN') && block.contains('android.intent.category.LAUNCHER')) ? '' : block
+            filterMatcher.appendReplacement(bodyOut, java.util.regex.Matcher.quoteReplacement(replacement))
+        }
+        filterMatcher.appendTail(bodyOut)
+        def replacement = "<${tag}${attrs}>${bodyOut}</${tag}>"
+        mgComponentMatcher.appendReplacement(mgOut, java.util.regex.Matcher.quoteReplacement(replacement))
+    } else {
+        mgComponentMatcher.appendReplacement(mgOut, java.util.regex.Matcher.quoteReplacement(mgComponentMatcher.group()))
+    }
+}
+mgComponentMatcher.appendTail(mgOut)
+mgManifestText = mgOut.toString()
+if (mgLauncherTarget == null) throw new GradleException('MUSHIN Glass: MAIN/LAUNCHER activity was not found in src/main/AndroidManifest.xml')
+
+def appMatcher = java.util.regex.Pattern.compile('(?s)<application\\b([^>]*)>').matcher(mgManifestText)
+if (!appMatcher.find()) throw new GradleException('MUSHIN Glass: application element was not found')
+def appAttrs = appMatcher.group(1)
+appAttrs = appAttrs.replaceAll('\\s+android:icon\\s*=\\s*"[^"]*"','').replaceAll('\\s+android:roundIcon\\s*=\\s*"[^"]*"','')
+def appTag = "<application${appAttrs} android:icon=\"@mipmap/mushin_icon_teal_gray\" android:roundIcon=\"@mipmap/mushin_icon_teal_gray\">"
+mgManifestText = appMatcher.replaceFirst(java.util.regex.Matcher.quoteReplacement(appTag))
+
+def manifestExtras = new StringBuilder()
+manifestExtras.append('\n        <provider android:name="jp.mushamusha.mushinglass.MushinGlass$InitProvider" android:authorities="${applicationId}.mushin-glass" android:exported="false" android:initOrder="100"/>')
+manifestExtras.append('\n        <activity android:name="jp.mushamusha.mushinglass.MushinGlass$AppearanceActivity" android:exported="false"/>')
+mgAliases.each { id, alias ->
+    def enabled = id == 'teal_gray' ? 'true' : 'false'
+    manifestExtras.append("\n        <activity-alias android:name=\"jp.mushamusha.mushinglass.${alias}\" android:targetActivity=\"${mgLauncherTarget}\" android:enabled=\"${enabled}\" android:exported=\"true\" android:icon=\"@mipmap/mushin_icon_${id}\" android:roundIcon=\"@mipmap/mushin_icon_${id}\"><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity-alias>")
+}
+mgManifestText = mgManifestText.replace('</application>', manifestExtras.toString() + '\n    </application>')
+mgGeneratedManifest.parentFile.mkdirs()
+mgGeneratedManifest.setText(mgManifestText, 'UTF-8')
 
 android {
+    sourceSets.main.manifest.srcFile(mgGeneratedManifest)
     sourceSets.main.java.srcDir(new File(mgGenerated, 'src'))
     sourceSets.main.res.srcDir(new File(mgGenerated, 'res'))
     sourceSets.main.assets.srcDir(new File(mgGenerated, 'assets'))
