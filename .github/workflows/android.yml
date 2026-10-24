@@ -14,11 +14,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
       - name: Build debug APK
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: kondate-debug-apk
