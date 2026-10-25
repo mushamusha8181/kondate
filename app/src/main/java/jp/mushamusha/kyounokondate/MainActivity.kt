@@ -26,6 +26,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import jp.mushamusha.mushinglass.MushinGlass
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
@@ -379,6 +380,7 @@ class MainActivity : Activity() {
                 }
             }
         })
+        MushinGlass.applyToView(this, content)
     }
 
     private fun buildPlayer(id: String): View {
@@ -467,6 +469,7 @@ class MainActivity : Activity() {
         }
         box.addView(include)
         box.addView(exclude)
+        MushinGlass.applyToView(this, box)
         AlertDialog.Builder(this)
             .setTitle("食材条件")
             .setView(box)
